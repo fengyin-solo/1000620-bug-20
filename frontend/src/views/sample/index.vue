@@ -65,7 +65,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 
-import { request } from '@/api/client'
+import { request, responseError } from '@/api/client'
 
 type Row = Record<string, string | number | null>
 
@@ -99,10 +99,14 @@ async function runAction(action: string, row: Row) {
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
-      body: JSON.stringify({ action }),
+      body: JSON.stringify({ values: { action } }),
     })
     if (!response.ok) {
-      throw new Error('样品受理动作未生效，请稍后重试')
+      throw new Error(await responseError(response, '样品受理动作未生效'))
+    }
+    const payload = await response.json()
+    if (payload.ok === false) {
+      throw new Error(payload.message ?? '样品受理动作未生效')
     }
     await reload()
   } catch (error) {

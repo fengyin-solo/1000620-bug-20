@@ -1,8 +1,15 @@
-"""样品受理业务规则：状态流转、字段校验与筛选口径都收在这里。"""
+"""样品受理业务规则：状态流转、字段校验与筛选口径都收在这里。
+
+登记样品即登记检测委托：必须先通过委托单位门禁（归属、合作状态、资质有效期），
+暂停/终止或资质过期的单位在任何入口都不能新委托。
+"""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
+from app.services.client import commission_gate
+from app.services.permission import Operator, require_permission
 from app.store import store
 
 MODULE = "sample"
@@ -33,18 +40,29 @@ class SampleService:
     def get_entry(self, entry_id: int) -> dict[str, Any] | None:
         return store.find(MODULE, entry_id)
 
-    def create_entry(self, values: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
+    def create_entry(
+        self,
+        values: dict[str, Any],
+        operator: Operator,
+        today: date | None = None,
+    ) -> tuple[dict[str, Any] | None, str]:
+        require_permission(operator, "sample:create")
         missing = [field for field in REQUIRED_FIELDS if not str(values.get(field) or "").strip()]
         if missing:
-            return None, missing
+            return None, f"缺少必填字段：{'、'.join(missing)}"
+        blocked = commission_gate(values.get("送检单位"), today, field_label="送检单位")
+        if blocked:
+            return None, blocked
         rows = store.rows(MODULE)
         entry = {"id": max((int(row.get("id", 0)) for row in rows), default=0) + 1}
         entry.update({field: values.get(field) for field in REQUIRED_FIELDS})
+        entry["送检单位"] = str(values.get("送检单位") or "").strip()
+        entry["登记人"] = operator.name
         entry["status"] = STATUS_ORDER[0]
         entry["pending"] = True
         entry["abnormal"] = False
         rows.append(entry)
-        return entry, []
+        return entry, ""
 
     def run_action(self, entry_id: int, action: str) -> tuple[dict[str, Any] | None, str]:
         entry = store.find(MODULE, entry_id)

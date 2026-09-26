@@ -74,3 +74,25 @@ npm run dev
   `backend/app/routers/<模块>.py`，业务规则在 `backend/app/services/<模块>.py`。
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
+
+## 角色与权限（委托单位、样品受理、检测结算）
+
+- 写操作要求请求头携带 `X-Operator-Role`（角色）与 `X-Operator-Name`（操作人）；
+  请求头只允许 ASCII，中文值按 URL 百分号编码传输，后端统一解码。
+- 角色口径见 `backend/app/services/permission.py`：业务员可登记委托单位/检测委托/结算单，
+  审核员可审核单位，管理员另可暂停/终止合作与修改档案；未识别角色一律 403。
+- 委托单位合作状态为已暂停/已终止，或资质编号已过期（按 `资质有效期至` 到期口径）时，
+  样品受理与检测结算两个登记入口都会拦下新委托并说明原因；
+  资质过期的合作单位在列表与详情统一显示「资质过期」。
+- 资质编号、结算方式等档案字段只能走 `PUT /api/client/{id}` 由有权限角色修改，
+  每次修改逐字段写入变更记录（时间、操作人、角色、旧值、新值），单位编码等归属字段不可改；
+  已终止单位档案冻结。历史委托与结算记录不被任何入口改动。
+
+## 测试
+
+```bash
+cd backend && python3 -m unittest discover -s tests -v
+```
+
+服务层测试只依赖标准库；`tests/e2e_check.py` 是接口级冒烟脚本，需要安装
+`fastapi` 与 `httpx` 后运行（`python3 tests/e2e_check.py`）。

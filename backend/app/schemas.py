@@ -51,7 +51,8 @@ class ClientEntry(BaseModel):
     field_4: str | None = None  # 联系电话
     field_5: str | None = None  # 结算方式
     field_6: str | None = None  # 资质编号
-    field_7: str | None = None  # 单位状态
+    field_7: str | None = None  # 资质有效期至
+    field_8: str | None = None  # 单位状态
 
 class ProjectEntry(BaseModel):
     """检测项目明细结构。"""
