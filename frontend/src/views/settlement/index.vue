@@ -3,7 +3,9 @@
     <header class="page-head">
       <div>
         <h2>检测结算管理</h2>
-        <p class="page-desc">维护结算单，围绕结算单号、委托单位、结算周期、检测项数做登记、筛选与状态流转。</p>
+        <p class="page-desc">
+          维护结算单：新开结算单必须归属到名册内的委托单位；已收款的记录封存，不允许再改动。
+        </p>
       </div>
       <div class="page-actions">
         <button class="btn primary" type="button" @click="openCreate">登记结算单</button>
@@ -11,17 +13,17 @@
       </div>
     </header>
 
-    <div class="stat-row">
-      <article v-for="item in stats" :key="item.label" class="stat-card">
-        <span class="stat-label">{{ item.label }}</span>
-        <strong class="stat-value">{{ item.value }}</strong>
-      </article>
-    </div>
-
     <form class="filter-bar" @submit.prevent="reload">
-      <label v-for="field in filterFields" :key="field" class="filter-item">
-        <span>{{ field }}</span>
-        <input v-model="filters[field]" :placeholder="`按${field}检索`" />
+      <label class="filter-item">
+        <span>结算单号</span>
+        <input v-model="filters.keyword" placeholder="按结算单号检索" />
+      </label>
+      <label class="filter-item">
+        <span>结算状态</span>
+        <select v-model="filters.status">
+          <option value="">全部状态</option>
+          <option v-for="s in statuses" :key="s" :value="s">{{ s }}</option>
+        </select>
       </label>
       <button class="btn" type="submit">查询</button>
       <button class="btn ghost" type="button" @click="resetFilters">重置条件</button>
@@ -39,7 +41,7 @@
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
           <td class="row-actions">
             <button
-              v-for="action in actions"
+              v-for="action in row.可用动作 ?? []"
               :key="action"
               class="link"
               type="button"
@@ -47,6 +49,7 @@
             >
               {{ action }}
             </button>
+            <span v-if="!(row.可用动作 ?? []).length" class="muted">已封存</span>
           </td>
         </tr>
         <tr v-if="!rows.length">
@@ -58,31 +61,55 @@
     <footer class="page-foot">
       <span>共 {{ total }} 条检测结算记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
+      <span v-if="noticeMessage" class="notice-text">{{ noticeMessage }}</span>
     </footer>
+
+    <div v-if="dialog === 'create'" class="modal-mask" @click.self="closeDialog">
+      <div class="modal">
+        <h3>登记结算单</h3>
+        <div class="form-grid">
+          <label class="field"><span>结算单号<em>*</em></span><input v-model="form.结算单号" placeholder="如 SETT-9001" /></label>
+          <label class="field"><span>委托单位<em>*</em></span><input v-model="form.委托单位" placeholder="单位编码或单位名称" /></label>
+          <label class="field"><span>结算周期<em>*</em></span><input v-model="form.结算周期" placeholder="如 2026-09" /></label>
+          <label class="field"><span>检测项数</span><input v-model="form.检测项数" /></label>
+          <label class="field"><span>应收金额</span><input v-model="form.应收金额" /></label>
+          <label class="field"><span>已收金额</span><input v-model="form.已收金额" /></label>
+        </div>
+        <p class="muted">已终止合作的单位不能新开结算单；历史结算记录收款后封存，不允许再改动。</p>
+        <p v-if="dialogError" class="error-text">{{ dialogError }}</p>
+        <footer class="modal-foot">
+          <button class="btn primary" type="button" @click="submitForm">提交</button>
+          <button class="btn ghost" type="button" @click="closeDialog">取消</button>
+        </footer>
+      </div>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, reactive, ref } from 'vue'
 
-import { request } from '@/api/client'
+import { request, submit } from '@/api/client'
 
-type Row = Record<string, string | number | null>
+type Row = Record<string, any>
 
 const ENDPOINT = '/api/settlement'
-const columns = ["结算单号", "委托单位", "结算周期", "检测项数", "应收金额", "已收金额", "开票状态", "结算状态"]
-const actions = ["发起核对", "确认结算", "标记争议"]
-const statuses = ["待核对", "核对中", "已确认", "已收款", "有争议"]
-const stats = [{"label": "待核对结算单", "value": 0}, {"label": "本月应收金额", "value": 0}, {"label": "争议单数", "value": 0}]
+const columns = ['结算单号', '委托单位', '结算周期', '检测项数', '应收金额', '已收金额', '开票状态', '结算状态']
+const statuses = ['待核对', '核对中', '已确认', '已收款', '有争议']
 
 const rows = ref<Row[]>([])
 const total = ref(0)
 const errorMessage = ref('')
-const filters = ref<Record<string, string>>({})
-const filterFields = columns.slice(0, 3)
+const noticeMessage = ref('')
+const filters = reactive({ keyword: '', status: '' })
+
+const dialog = ref<'none' | 'create'>('none')
+const dialogError = ref('')
+const form = reactive<Record<string, string>>({})
 
 function resetFilters() {
-  filters.value = {}
+  filters.keyword = ''
+  filters.status = ''
   void reload()
 }
 
@@ -91,19 +118,36 @@ function exportRows() {
 }
 
 function openCreate() {
-  errorMessage.value = '结算单登记入口尚未接入审批流'
+  Object.keys(form).forEach((key) => delete form[key])
+  dialogError.value = ''
+  dialog.value = 'create'
+}
+
+function closeDialog() {
+  dialog.value = 'none'
+}
+
+async function submitForm() {
+  errorMessage.value = ''
+  noticeMessage.value = ''
+  dialogError.value = ''
+  try {
+    const result = await submit(ENDPOINT, { ...form })
+    noticeMessage.value = result.message
+    closeDialog()
+    await reload()
+  } catch (error) {
+    // 拦截原因留在弹窗里，表单保留已填内容，改完可再次提交。
+    dialogError.value = error instanceof Error ? error.message : '登记失败'
+  }
 }
 
 async function runAction(action: string, row: Row) {
   errorMessage.value = ''
+  noticeMessage.value = ''
   try {
-    const response = await request(`${ENDPOINT}/${row.id}/actions`, {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    })
-    if (!response.ok) {
-      throw new Error('检测结算动作未生效，请稍后重试')
-    }
+    const result = await submit(`${ENDPOINT}/${row.id}/actions`, { action })
+    noticeMessage.value = result.message
     await reload()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '检测结算操作失败'
@@ -112,9 +156,11 @@ async function runAction(action: string, row: Row) {
 
 async function reload() {
   errorMessage.value = ''
-  const query = new URLSearchParams(filters.value as Record<string, string>).toString()
+  const query = new URLSearchParams()
+  if (filters.keyword) query.set('keyword', filters.keyword)
+  if (filters.status) query.set('status', filters.status)
   try {
-    const response = await request(`${ENDPOINT}?${query}`)
+    const response = await request(`${ENDPOINT}?${query.toString()}`)
     if (!response.ok) {
       throw new Error('结算单列表读取失败')
     }
@@ -122,7 +168,7 @@ async function reload() {
     rows.value = payload.items ?? []
     total.value = payload.total ?? rows.value.length
   } catch (error) {
-    errorMessage.value = error instanceof Error ? error.message : '检测结算列表读取失败'
+    errorMessage.value = error instanceof Error ? error.message : '结算单列表读取失败'
   }
 }
 

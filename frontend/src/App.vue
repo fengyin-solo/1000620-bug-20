@@ -11,7 +11,16 @@
     <main class="app-main">
       <header class="app-head">
         <span class="head-desc">面向样品受理、任务派发、检测执行、仪器校准与报告出具的一体化实验室检测管理后台。</span>
-        <span class="head-user">当前值班：{{ store.operator }} · {{ store.shiftLabel }}</span>
+        <span class="head-user">
+          当前值班：{{ store.operator }} · {{ store.shiftLabel }}
+          <label class="role-switch">
+            角色
+            <select :value="store.role" @change="onRoleChange">
+              <option value="管理员">管理员</option>
+              <option value="业务员">业务员</option>
+            </select>
+          </label>
+        </span>
       </header>
       <RouterView />
     </main>
@@ -19,9 +28,13 @@
 </template>
 
 <script setup lang="ts">
-import { useSessionStore } from '@/stores/session'
+import { useSessionStore, type Role } from '@/stores/session'
 
 const store = useSessionStore()
+
+function onRoleChange(event: Event) {
+  store.setRole((event.target as HTMLSelectElement).value as Role)
+}
 
 const navItems = [{ label: "运营概览", path: "/" }, { label: "样品受理", path: "/sample" }, { label: "委托单位", path: "/client" }, { label: "检测项目", path: "/project" }, { label: "检测任务", path: "/task" }, { label: "检测执行", path: "/execute" }, { label: "检测结果", path: "/result" }, { label: "结果复核", path: "/review" }, { label: "仪器设备", path: "/instrument" }, { label: "校准记录", path: "/calibration" }, { label: "试剂耗材", path: "/reagent" }, { label: "耗材领用", path: "/consume" }, { label: "环境监控", path: "/environment" }, { label: "报告出具", path: "/report" }, { label: "报告变更", path: "/issue" }, { label: "质量控制", path: "/qc" }, { label: "投诉处理", path: "/complaint" }, { label: "样品流转", path: "/stockin" }, { label: "检测结算", path: "/settlement" }]
 </script>
